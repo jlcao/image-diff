@@ -35,3 +35,5 @@ logs/
 *.log
 venv/
 .config/
+.compare_cache/
+dist-linux/

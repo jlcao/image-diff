@@ -64,16 +64,25 @@ class Utils:
     @staticmethod
     def get_file_info(file_path):
         """Get file information"""
-        if not os.path.exists(file_path):
+        abs_file_path = os.path.abspath(file_path)
+        if not os.path.exists(abs_file_path):
             return None
         
-        stat = os.stat(file_path)
+        stat = os.stat(abs_file_path)
+        is_dir = os.path.isdir(abs_file_path)
+        
+        # Only calculate MD5 for files, not directories
+        md5 = None
+        if not is_dir:
+            md5 = Utils.get_file_hash(abs_file_path, algorithm='md5')
+        
         return {
-            'name': os.path.basename(file_path),
-            'path': file_path,
+            'name': os.path.basename(abs_file_path),
+            'path': abs_file_path,
             'size': stat.st_size,
             'mtime': datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            'is_dir': os.path.isdir(file_path)
+            'is_dir': is_dir,
+            'md5': md5
         }
     
     @staticmethod

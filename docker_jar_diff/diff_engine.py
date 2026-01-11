@@ -3,6 +3,7 @@ import difflib
 import zipfile
 import io
 import tempfile
+from datetime import datetime
 from .utils import Utils
 from .cache_manager import CacheManager
 
@@ -52,10 +53,92 @@ class DiffEngine:
                         current[part] = {}
                     current = current[part]
                 
-                # Add file info
-                file_info = Utils.get_file_info(file_path)
-                if file_info:
-                    current[path_parts[-1]] = file_info
+                # Check if it's a JAR or ZIP file
+                filename = path_parts[-1]
+                if Utils.is_jar_file(filename) or filename.lower().endswith('.zip'):
+                    # Extract JAR/ZIP contents to temporary directory
+                    temp_dir = Utils.create_temp_dir()
+                    extracted_tree = {}
+                    
+                    try:
+                        # Extract the archive and get original timestamps
+                        with zipfile.ZipFile(file_path, 'r') as z:
+                            z.extractall(temp_dir)
+                            
+                            # Build directory tree with original timestamps from ZIP file
+                            extracted_tree = self._build_archive_tree(z, temp_dir)
+                        
+                        # Add file info as a special entry with extracted content
+                        file_info = Utils.get_file_info(file_path)
+                        if file_info:
+                            # Create a special entry for the archive file
+                            archive_entry = {
+                                'file_info': file_info,
+                                'is_archive': True,
+                                'contents': extracted_tree
+                            }
+                            current[filename] = archive_entry
+                    except Exception as e:
+                        # If extraction fails, just add it as a regular file
+                        print(f"Error extracting archive {file_path}: {e}")
+                        file_info = Utils.get_file_info(file_path)
+                        if file_info:
+                            current[filename] = file_info
+                    finally:
+                        # Clean up
+                        Utils.remove_dir(temp_dir)
+                else:
+                    # Add as regular file
+                    file_info = Utils.get_file_info(file_path)
+                    if file_info:
+                        current[filename] = file_info
+        
+        return tree
+    
+    def _build_archive_tree(self, zip_file, temp_dir):
+        """Build directory tree structure from extracted archive with original timestamps"""
+        tree = {}
+        
+        for zip_info in zip_file.infolist():
+            if zip_info.is_dir():
+                continue
+                
+            filename = zip_info.filename
+            file_path = os.path.join(temp_dir, filename)
+            
+            # Skip if file doesn't exist (could be a broken archive)
+            if not os.path.exists(file_path):
+                continue
+                
+            # Add to tree
+            current = tree
+            path_parts = filename.split('/')
+            
+            for part in path_parts[:-1]:
+                if part not in current:
+                    current[part] = {}
+                current = current[part]
+            
+            # Get file info
+            abs_file_path = os.path.abspath(file_path)
+            stat = os.stat(abs_file_path)
+            
+            # Calculate MD5
+            md5 = Utils.get_file_hash(abs_file_path, algorithm='md5')
+            
+            # Get original timestamp from ZIP file
+            original_mtime = datetime(*zip_info.date_time)
+            
+            file_info = {
+                'name': path_parts[-1],
+                'path': abs_file_path,
+                'size': stat.st_size,
+                'mtime': original_mtime.isoformat(),
+                'is_dir': False,
+                'md5': md5
+            }
+            
+            current[path_parts[-1]] = file_info
         
         return tree
     
@@ -74,67 +157,133 @@ class DiffEngine:
                 item1 = tree1[key]
                 item2 = tree2[key]
                 
-                # Check if either item is a file info dictionary (has 'size' key)
-                item1_is_file = isinstance(item1, dict) and 'size' in item1
-                item2_is_file = isinstance(item2, dict) and 'size' in item2
+                # Check if either item is an archive entry
+                item1_is_archive = isinstance(item1, dict) and item1.get('is_archive')
+                item2_is_archive = isinstance(item2, dict) and item2.get('is_archive')
+                
+                # Get actual file info and contents for archive entries
+                item1_file_info = item1.get('file_info', item1) if item1_is_archive else item1
+                item2_file_info = item2.get('file_info', item2) if item2_is_archive else item2
+                item1_contents = item1.get('contents', {}) if item1_is_archive else item1
+                item2_contents = item2.get('contents', {}) if item2_is_archive else item2
+                
+                # Check if either item (or its file_info) is a file info dictionary (has 'size' key)
+                item1_is_file = isinstance(item1_file_info, dict) and 'size' in item1_file_info
+                item2_is_file = isinstance(item2_file_info, dict) and 'size' in item2_file_info
                 
                 if not item1_is_file and not item2_is_file:
-                    # Both are directories, recurse
-                    sub_diffs = self._find_differences(item1, item2, path)
+                    # Both are directories or archive contents, recurse
+                    sub_diffs = self._find_differences(item1_contents, item2_contents, path)
                     diffs.extend(sub_diffs)
                 elif item1_is_file and item2_is_file:
-                    # Both are files, compare them
+                    # Both are files or archive files, compare them
                     diff_type = 'identical'
                     
-                    if item1['size'] != item2['size']:
+                    if item1_file_info['size'] != item2_file_info['size']:
                         diff_type = 'size_diff'
-                    elif item1['mtime'] != item2['mtime']:
-                        diff_type = 'mtime_diff'
                     else:
-                        # Same size and mtime, check content
+                        # Same size, check MD5 content
                         try:
-                            hash1 = Utils.get_file_hash(item1['path'])
-                            hash2 = Utils.get_file_hash(item2['path'])
-                            if hash1 != hash2:
+                            # Use the MD5 already calculated in get_file_info
+                            md5_1 = item1_file_info.get('md5')
+                            md5_2 = item2_file_info.get('md5')
+                            
+                            # If MD5 is not available, calculate it
+                            if md5_1 is None:
+                                md5_1 = Utils.get_file_hash(item1_file_info['path'], algorithm='md5')
+                            if md5_2 is None:
+                                md5_2 = Utils.get_file_hash(item2_file_info['path'], algorithm='md5')
+                            
+                            if md5_1 != md5_2:
                                 diff_type = 'content_diff'
+                            else:
+                                # Same size and MD5, files are identical
+                                diff_type = 'identical'
                         except Exception as e:
-                            diff_type = 'error'
+                            # Log the error but still check if MD5 values are available
+                            print(f"Error calculating MD5: {e}")
+                            # If MD5 values are already available, use them
+                            md5_1 = item1_file_info.get('md5')
+                            md5_2 = item2_file_info.get('md5')
+                            if md5_1 and md5_2 and md5_1 == md5_2:
+                                diff_type = 'identical'
+                            else:
+                                diff_type = 'error'
                     
                     if diff_type != 'identical':
                         diff_item = {
                             'path': path,
                             'type': diff_type,
-                            'item1': item1,
-                            'item2': item2
+                            'item1': item1_file_info,
+                            'item2': item2_file_info,
+                            'is_archive': item1_is_archive and item2_is_archive
                         }
                         
-                        # If it's a JAR file, diff the content
-                        try:
-                            if Utils.is_jar_file(item1['path']) and Utils.is_jar_file(item2['path']):
-                                jar_diff = self._diff_jar_files(item1['path'], item2['path'], path)
+                        # If both are archive files and have different contents, diff their extracted contents
+                        if item1_is_archive and item2_is_archive:
+                            try:
+                                archive_diff = self._find_differences(item1_contents, item2_contents, path)
+                                if archive_diff:
+                                    diff_item['archive_diff'] = archive_diff
+                            except Exception as e:
+                                print(f"Error diffing archive contents: {e}")
+                        # For backward compatibility, keep JAR diff logic
+                        elif Utils.is_jar_file(item1_file_info['path']) and Utils.is_jar_file(item2_file_info['path']):
+                            try:
+                                jar_diff = self._diff_jar_files(item1_file_info['path'], item2_file_info['path'], path)
                                 diff_item['jar_diff'] = jar_diff
-                        except Exception as e:
-                            print(f"Error checking JAR file: {e}")
+                            except Exception as e:
+                                print(f"Error checking JAR file: {e}")
                         
                         diffs.append(diff_item)
             elif key in tree1:
                 # Only in tree1
                 item1 = tree1[key]
+                item1_is_archive = isinstance(item1, dict) and item1.get('is_archive')
+                item1_file_info = item1.get('file_info', item1) if item1_is_archive else item1
+                item1_contents = item1.get('contents', {}) if item1_is_archive else item1
+                
+                # Add entry for item only in tree1
                 diffs.append({
                     'path': path,
                     'type': 'only_in_1',
-                    'item1': item1 if (isinstance(item1, dict) and 'size' in item1) else {'is_dir': True},
-                    'item2': None
+                    'item1': item1_file_info,
+                    'item2': None,
+                    'is_archive': item1_is_archive
                 })
+                
+                # If it's an archive, add its contents to the diff
+                if item1_is_archive:
+                    try:
+                        archive_diff = self._find_differences(item1_contents, {}, path)
+                        if archive_diff:
+                            diffs.extend(archive_diff)
+                    except Exception as e:
+                        print(f"Error processing archive contents: {e}")
             else:
                 # Only in tree2
                 item2 = tree2[key]
+                item2_is_archive = isinstance(item2, dict) and item2.get('is_archive')
+                item2_file_info = item2.get('file_info', item2) if item2_is_archive else item2
+                item2_contents = item2.get('contents', {}) if item2_is_archive else item2
+                
+                # Add entry for item only in tree2
                 diffs.append({
                     'path': path,
                     'type': 'only_in_2',
                     'item1': None,
-                    'item2': item2 if (isinstance(item2, dict) and 'size' in item2) else {'is_dir': True}
+                    'item2': item2_file_info,
+                    'is_archive': item2_is_archive
                 })
+                
+                # If it's an archive, add its contents to the diff
+                if item2_is_archive:
+                    try:
+                        archive_diff = self._find_differences({}, item2_contents, path)
+                        if archive_diff:
+                            diffs.extend(archive_diff)
+                    except Exception as e:
+                        print(f"Error processing archive contents: {e}")
         
         return diffs
     

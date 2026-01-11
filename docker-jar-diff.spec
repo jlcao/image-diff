@@ -5,7 +5,7 @@ a = Analysis(
     ['docker_jar_diff/cli.py'],
     pathex=[],
     binaries=[],
-    datas=[('D:/resource/python/docker-jar-diff/.config/config.json', '.config')],
+    datas=[('.config/config.json', '.config'), ('docker_jar_diff/templates/report_template.html', 'docker_jar_diff/templates')],
     hiddenimports=['docker', 'click', 'docker.api', 'docker.api.build', 'docker.api.client', 'docker.api.container', 'docker.api.daemon', 'docker.api.exec_api', 'docker.api.image', 'docker.api.network', 'docker.api.plugin', 'docker.api.secret', 'docker.api.service', 'docker.api.swarm', 'docker.api.volume', 'docker.auth', 'docker.client', 'docker.constants', 'docker.errors', 'docker.models', 'docker.models.containers', 'docker.models.images', 'docker.models.networks', 'docker.models.nodes', 'docker.models.secrets', 'docker.models.services', 'docker.models.swarm', 'docker.models.volumes', 'docker.tls', 'docker.types', 'docker.types.base', 'docker.types.daemon', 'docker.types.services', 'docker.types.swarm', 'docker.utils', 'docker.utils.build', 'docker.utils.config', 'docker.utils.ports', 'docker.utils.proxy', 'docker.utils.socket', 'docker.utils.utils', 'requests', 'urllib3', 'click', 'json', 'os', 'sys', 'time', 'shutil', 'tempfile', 'zipfile', 'tarfile'],
     hookspath=[],
     hooksconfig={},

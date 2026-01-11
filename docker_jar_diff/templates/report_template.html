@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docker镜像差异比对报告</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .header-info {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            align-items: center;
+        }
+        
+        .header-info-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .header-info-item strong {
+            color: #2c3e50;
+        }
+        
+        .directory-table {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .table-container {
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .expand-icon {
+            cursor: pointer;
+            margin-right: 5px;
+            color: #666;
+        }
+        
+        .expand-icon.expanded {
+            transform: rotate(90deg);
+        }
+        
+        .folder-icon {
+            margin-right: 5px;
+            color: #ff9800;
+        }
+        
+        .file-icon {
+            margin-right: 5px;
+            color: #2196f3;
+        }
+        
+        .diff-indicator {
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+        
+        .diff-content {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        
+        .diff-size {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        
+        .diff-mtime {
+            background-color: #fff3e0;
+            color: #ef6c00;
+        }
+        
+        .only-in-1 {
+            background-color: #e3f2fd;
+            color: #1565c0;
+        }
+        
+        .only-in-2 {
+            background-color: #f3e5f5;
+            color: #7b1fa2;
+        }
+        
+        .type-mismatch {
+            background-color: #ffecb3;
+            color: #f57c00;
+        }
+        
+        .file-info-column {
+            font-size: 12px;
+        }
+        
+        .file-info-item {
+            margin-bottom: 5px;
+        }
+        
+        .file-info-item:last-child {
+            margin-bottom: 0;
+        }
+        
+        .size-info {
+            color: #2e7d32;
+        }
+        
+        .mtime-info {
+            color: #ef6c00;
+        }
+        
+        .md5-info {
+            color: #666;
+            font-family: monospace;
+            font-size: 11px;
+        }
+        
+        .archive-indicator {
+            color: #4caf50;
+            font-size: 12px;
+            margin-left: 5px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .error {
+            text-align: center;
+            padding: 40px;
+            color: #c62828;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Docker镜像差异比对报告</h1>
+        
+        <div class="header-info">
+            <div class="header-info-item">
+                <strong>比对时间:</strong>
+                <span id="compare-time">{{timestamp}}</span>
+            </div>
+            <div class="header-info-item">
+                <strong>镜像1:</strong>
+                <span id="image1-name"></span>
+            </div>
+            <div class="header-info-item">
+                <strong>镜像2:</strong>
+                <span id="image2-name"></span>
+            </div>
+            <div class="header-info-item">
+                <strong>比对目录:</strong>
+                <span id="compare-dir"></span>
+            </div>
+            <div class="header-info-item">
+                <strong>差异文件数量:</strong>
+                <span id="diff-count"></span>
+            </div>
+        </div>
+        
+        <div class="directory-table">
+            <div class="table-container">
+                <div id="loading" class="loading">正在加载差异数据...</div>
+                <div id="error" class="error" style="display: none;">加载差异数据失败</div>
+                <table id="diff-table" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>目录</th>
+                            <th>差异类型</th>
+                            <th id="file-info-1">镜像一文件信息</th>
+                            <th id="file-info-2">镜像二文件信息</th>
+                        </tr>
+                    </thead>
+                    <tbody id="diff-table-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 嵌入式差异数据
+        const diffData = {{diff_data}};
+        
+        // 差异类型中文映射
+        const DIFF_TYPE_MAP = {
+            'content_diff': '内容差异',
+            'size_diff': '大小差异',
+            'mtime_diff': '时间差异',
+            'only_in_1': '仅在镜像1',
+            'only_in_2': '仅在镜像2',
+            'type_mismatch': '类型不匹配'
+        };
+
+        // 格式化文件大小
+        function formatSize(size) {
+            if (size == null) return 'N/A';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let unitIndex = 0;
+            while (size >= 1024 && unitIndex < units.length - 1) {
+                size /= 1024;
+                unitIndex++;
+            }
+            return `${size.toFixed(2)} ${units[unitIndex]}`;
+        }
+        
+        // 格式化时间
+        function formatDate(dateString) {
+            if (!dateString) return 'N/A';
+            try {
+                const date = new Date(dateString);
+                if (isNaN(date.getTime())) return dateString;
+                
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                const seconds = String(date.getSeconds()).padStart(2, '0');
+                
+                return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+            } catch (error) {
+                return dateString;
+            }
+        }
+
+        // 构建目录结构
+        function buildDirectoryStructure(differences) {
+            const structure = {};
+            
+            function addToStructure(path, diff) {
+                const parts = path.split('/');
+                let current = structure;
+                
+                // 查找归档文件的位置（无论是处理归档文件本身还是其内容）
+                let archiveIndex = -1;
+                for (let i = 0; i < parts.length; i++) {
+                    const part = parts[i];
+                    // 检查是否是归档文件
+                    if (part.toLowerCase().endsWith('.jar') || part.toLowerCase().endsWith('.zip')) {
+                        archiveIndex = i;
+                        break;
+                    }
+                }
+                
+                // 为每个路径部分创建目录节点，直到归档文件或普通文件
+                const targetIndex = archiveIndex !== -1 ? archiveIndex : parts.length - 1;
+                for (let i = 0; i < targetIndex; i++) {
+                    const part = parts[i];
+                    if (!current[part]) {
+                        current[part] = { type: 'directory', children: {} };
+                    } else if (current[part].type === 'file') {
+                        // 如果该节点已经是文件节点，将其转换为目录节点
+                        const fileInfo = current[part];
+                        current[part] = { type: 'directory', children: {} };
+                        current[part].children[part] = fileInfo;
+                    }
+                    current = current[part].children;
+                }
+                
+                if (archiveIndex !== -1) {
+                    // 处理归档文件节点
+                    const archiveName = parts[archiveIndex];
+                    
+                    // 创建或更新归档文件节点
+                    if (!current[archiveName]) {
+                        current[archiveName] = { type: 'directory', children: {} };
+                    } else if (current[archiveName].type === 'file') {
+                        // 如果已经是文件节点，转换为目录节点
+                        const fileInfo = current[archiveName];
+                        current[archiveName] = { type: 'directory', children: {} };
+                        current[archiveName].children[archiveName] = fileInfo;
+                    }
+                    
+                    // 如果是归档文件本身的差异，添加diff信息
+                    if (diff.is_archive) {
+                        current[archiveName].diff = diff;
+                    }
+                    
+                    // 如果还有子路径（归档文件内容），继续处理
+                    if (parts.length > archiveIndex + 1) {
+                        // 处理归档文件内部内容
+                        let contentCurrent = current[archiveName].children;
+                        
+                        // 处理归档文件内部的目录和文件
+                        for (let i = archiveIndex + 1; i < parts.length - 1; i++) {
+                            const part = parts[i];
+                            if (!contentCurrent[part]) {
+                                contentCurrent[part] = { type: 'directory', children: {} };
+                            } else if (contentCurrent[part].type === 'file') {
+                                // 如果该节点已经是文件节点，将其转换为目录节点
+                                const fileInfo = contentCurrent[part];
+                                contentCurrent[part] = { type: 'directory', children: {} };
+                                contentCurrent[part].children[part] = fileInfo;
+                            }
+                            contentCurrent = contentCurrent[part].children;
+                        }
+                        
+                        // 添加归档文件内部的文件节点
+                        const fileName = parts[parts.length - 1];
+                        contentCurrent[fileName] = { type: 'file', diff: diff };
+                    }
+                } else {
+                    // 根据差异类型添加节点
+                    const fileName = parts[parts.length - 1];
+                    if (diff.type === 'directory') {
+                        // 添加目录节点
+                        current[fileName] = { type: 'directory', children: {}, diff: diff };
+                    } else {
+                        // 添加普通文件节点
+                        current[fileName] = { type: 'file', diff: diff };
+                    }
+                }
+            }
+            
+            // 处理主差异
+            differences.forEach(diff => {
+                addToStructure(diff.path, diff);
+                
+                // 处理归档文件差异
+                if (diff.is_archive && diff.archive_diff) {
+                    diff.archive_diff.forEach(archiveDiff => {
+                        // 保持归档文件的完整路径
+                        addToStructure(archiveDiff.path, archiveDiff);
+                    });
+                }
+            });
+            
+            return structure;
+        }
+
+        // 渲染目录结构
+        function renderDirectoryStructure(structure, parentElement, indent = 0) {
+            for (const [name, node] of Object.entries(structure)) {
+                const row = document.createElement('tr');
+                
+                // 目录列
+                const pathCell = document.createElement('td');
+                pathCell.style.paddingLeft = `${indent * 5}px`;
+
+               
+                
+                if (node.type === 'directory') {
+                    // 目录节点
+                    const expandIcon = document.createElement('span');
+                    expandIcon.className = 'expand-icon';
+                    expandIcon.textContent = '▶';
+                    expandIcon.onclick = (e) => toggleDirectory(e, node, row);
+                    
+                    const folderIcon = document.createElement('span');
+                    folderIcon.className = 'folder-icon';
+                    folderIcon.textContent = '📁';
+                    
+                    const folderName = document.createElement('span');
+                    folderName.textContent = name;
+                    
+                    pathCell.appendChild(expandIcon);
+                    pathCell.appendChild(folderIcon);
+                    pathCell.appendChild(folderName);
+                    
+                    // 检查是否有比对信息（归档文件目录应该有）
+                    let typeCell, info1Cell, info2Cell;
+                    if (node.diff) {
+                        // 差异类型列
+                        typeCell = document.createElement('td');
+                        const diffIndicator = document.createElement('span');
+                        diffIndicator.className = `diff-indicator ${node.diff.type}`;
+                        diffIndicator.textContent = DIFF_TYPE_MAP[node.diff.type] || node.diff.type;
+                        typeCell.appendChild(diffIndicator);
+                        
+                        // 镜像一文件信息列
+                        info1Cell = document.createElement('td');
+                        info1Cell.className = 'file-info-column';
+                        renderFileInfo(info1Cell, node.diff.item1);
+                        
+                        // 镜像二文件信息列
+                        info2Cell = document.createElement('td');
+                        info2Cell.className = 'file-info-column';
+                        renderFileInfo(info2Cell, node.diff.item2);
+                    } else {
+                        // 普通目录，其他列留空
+                        typeCell = document.createElement('td');
+                        info1Cell = document.createElement('td');
+                        info2Cell = document.createElement('td');
+                    }
+                    
+                    row.appendChild(pathCell);
+                    row.appendChild(typeCell);
+                    row.appendChild(info1Cell);
+                    row.appendChild(info2Cell);
+                    
+                    parentElement.appendChild(row);
+                    
+                    // 创建子节点容器
+                    const childrenContainer = document.createElement('tr');
+                    childrenContainer.className = 'children-container';
+                    
+                    // 计算子节点数量
+                    const childCount = Object.keys(node.children).length;
+                    
+                    // 判断是否是归档文件目录（jar或zip）
+                    const isArchiveDirectory = name.toLowerCase().endsWith('.jar') || name.toLowerCase().endsWith('.zip');
+                    
+                    // 除了jar包和zip包，其他节点默认全部展开
+                    if (!isArchiveDirectory) {
+                        childrenContainer.style.display = 'table-row';
+                        expandIcon.classList.add('expanded');
+                        expandIcon.textContent = '▼';
+                    } else {
+                        childrenContainer.style.display = 'none';
+                    }
+                    
+                    const childrenCell = document.createElement('td');
+                    childrenCell.colSpan = 4;
+                    
+                    const childrenTable = document.createElement('table');
+                    childrenTable.style.width = '100%';
+                    childrenTable.style.borderCollapse = 'collapse';
+                    
+                    const childrenBody = document.createElement('tbody');
+                    childrenTable.appendChild(childrenBody);
+                    childrenCell.appendChild(childrenTable);
+                    childrenContainer.appendChild(childrenCell);
+                    parentElement.appendChild(childrenContainer);
+                    
+                    // 递归渲染子目录
+                    renderDirectoryStructure(node.children, childrenBody, indent + 1);
+                } else {
+                    pathCell.style.fontSize = 'small';
+                    // 文件节点
+                    const fileIcon = document.createElement('span');
+                    fileIcon.className = 'file-icon';
+                    fileIcon.textContent = '📄';
+                    
+                    const fileName = document.createElement('span');
+                    fileName.textContent = name;
+                    
+                    // 检查是否是归档文件
+                    if (name.toLowerCase().endsWith('.jar') || name.toLowerCase().endsWith('.zip')) {
+                        const archiveIndicator = document.createElement('span');
+                        archiveIndicator.className = 'archive-indicator';
+                        archiveIndicator.textContent = '(归档文件)';
+                        
+                        pathCell.appendChild(fileIcon);
+                        pathCell.appendChild(fileName);
+                        pathCell.appendChild(archiveIndicator);
+                    } else {
+                        pathCell.appendChild(fileIcon);
+                        pathCell.appendChild(fileName);
+                    }
+                    
+                    // 差异类型列
+                    const typeCell = document.createElement('td');
+                    const diffIndicator = document.createElement('span');
+                    diffIndicator.className = `diff-indicator ${node.diff.type}`;
+                    diffIndicator.textContent = DIFF_TYPE_MAP[node.diff.type] || node.diff.type;
+                    typeCell.appendChild(diffIndicator);
+                    
+                    // 镜像一文件信息列
+                    const info1Cell = document.createElement('td');
+                    info1Cell.className = 'file-info-column';
+                    renderFileInfo(info1Cell, node.diff.item1);
+                    
+                    // 镜像二文件信息列
+                    const info2Cell = document.createElement('td');
+                    info2Cell.className = 'file-info-column';
+                    renderFileInfo(info2Cell, node.diff.item2);
+                    
+                    row.appendChild(pathCell);
+                    row.appendChild(typeCell);
+                    row.appendChild(info1Cell);
+                    row.appendChild(info2Cell);
+                    
+                    parentElement.appendChild(row);
+                }
+            }
+        }
+
+        // 渲染文件信息
+        function renderFileInfo(cell, fileInfo) {
+            if (!fileInfo) {
+                cell.textContent = 'N/A';
+                return;
+            }
+            
+            const infoContainer = document.createElement('div');
+            
+            // 文件大小
+            const sizeItem = document.createElement('div');
+            sizeItem.className = 'file-info-item size-info';
+            sizeItem.innerHTML = `<strong>大小:</strong> ${formatSize(fileInfo.size)}`;
+            infoContainer.appendChild(sizeItem);
+            
+            // 修改时间
+            const mtimeItem = document.createElement('div');
+            mtimeItem.className = 'file-info-item mtime-info';
+            mtimeItem.innerHTML = `<strong>修改时间:</strong> ${formatDate(fileInfo.mtime)}`;
+            infoContainer.appendChild(mtimeItem);
+            
+            // MD5值
+            if (fileInfo.md5) {
+                const md5Item = document.createElement('div');
+                md5Item.className = 'file-info-item md5-info';
+                md5Item.innerHTML = `<strong>MD5:</strong> ${fileInfo.md5}`;
+                infoContainer.appendChild(md5Item);
+            }
+            
+            cell.appendChild(infoContainer);
+        }
+
+        // 切换目录展开/折叠
+        function toggleDirectory(event, node, row) {
+            event.stopPropagation();
+            const expandIcon = event.target;
+            const childrenContainer = row.nextElementSibling;
+            
+            if (childrenContainer && childrenContainer.className === 'children-container') {
+                if (childrenContainer.style.display === 'none' || childrenContainer.style.display === '') {
+                    childrenContainer.style.display = 'table-row';
+                    expandIcon.classList.add('expanded');
+                    expandIcon.textContent = '▼';
+                } else {
+                    childrenContainer.style.display = 'none';
+                    expandIcon.classList.remove('expanded');
+                    expandIcon.textContent = '▶';
+                }
+            }
+        }
+
+        // 加载差异数据
+        function loadDiffData() {
+            const loadingElement = document.getElementById('loading');
+            const errorElement = document.getElementById('error');
+            const tableElement = document.getElementById('diff-table');
+            const tableBody = document.getElementById('diff-table-body');
+            
+            try {
+                // 使用嵌入式的差异数据
+                const diffResult = diffData;
+                
+                // 更新头部信息
+                document.getElementById('image1-name').textContent = diffResult.image1_name || diffResult.dir1.split(/[\\/]/).pop();
+                document.getElementById('image2-name').textContent = diffResult.image2_name || diffResult.dir2.split(/[\\/]/).pop();
+                document.getElementById('file-info-1').textContent = `镜像一: ${diffResult.image1_name || diffResult.dir1.split(/[\\/]/).pop()}`;
+                document.getElementById('file-info-2').textContent = `镜像二: ${diffResult.image2_name || diffResult.dir2.split(/[\\/]/).pop()}`;
+                document.getElementById('compare-dir').textContent = diffResult.compare_dir;
+                document.getElementById('diff-count').textContent = diffResult.differences.length;
+                
+                // 构建目录结构
+                const directoryStructure = buildDirectoryStructure(diffResult.differences);
+                
+                // 渲染表格
+                tableBody.innerHTML = '';
+                renderDirectoryStructure(directoryStructure, tableBody);
+                
+                // 显示表格，隐藏加载状态
+                loadingElement.style.display = 'none';
+                errorElement.style.display = 'none';
+                tableElement.style.display = 'table';
+            } catch (error) {
+                console.error('加载差异数据失败:', error);
+                loadingElement.style.display = 'none';
+                errorElement.style.display = 'block';
+                tableElement.style.display = 'none';
+            }
+        }
+
+        // 页面加载完成后加载数据
+        document.addEventListener('DOMContentLoaded', loadDiffData);
+    </script>
+</body>
+</html>

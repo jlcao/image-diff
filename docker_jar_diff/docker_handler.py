@@ -115,7 +115,11 @@ class DockerHandler:
 
         tmpPath = Path(os.path.join(extract_dir,source_dir.rstrip('/').lstrip('/') ))
         print(f"[4/4] 解压 tar 包 to {str(tmpPath.parent)}...")
-        self.extract_image(tar_path, tmpPath.parent)
+
+        if source_dir.rstrip('/').lstrip('/')!='' :
+          self.extract_image(tar_path, tmpPath.parent)
+        else:
+          self.extract_image(tar_path, tmpPath)
         return tmpPath
 
     def process_image(self, image_name, compare_dir):

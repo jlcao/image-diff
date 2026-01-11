@@ -113,8 +113,30 @@ class DockerJarDiff:
                 print(f"ℹ️  未配置 Beyond Compare 5 路径，将直接生成差异报告")
             
             # 无论 Beyond Compare 是否成功，都继续生成差异报告
-            diff_result = DiffEngine.diff_directories(extracted_dir1, extracted_dir2, compare_dir)
-            self.html_generator.generate_report(diff_result)
+            print("\nStep 3: 生成差异报告...")
+            diff_result = self.diff_engine.diff_directories(extracted_dir1, extracted_dir2, compare_dir)
+            
+            # 添加原始镜像名称信息
+            diff_result['image1_name'] = image1
+            diff_result['image2_name'] = image2
+            
+            # Save diff result to JSON file in diff directory
+            diff_json_path = os.path.join(self.cache_manager.diff_dir, "diff.json")
+            Utils.save_json(diff_result, diff_json_path)
+            print(f"✅ 差异结果已保存为 JSON 文件: {diff_json_path}")
+            
+            report_path = self.html_generator.generate_report(diff_result)
+            print(f"✅ 差异报告已生成: {report_path}")
+            
+            # 使用默认浏览器打开报告
+            import webbrowser
+            try:
+                webbrowser.open(f"file://{report_path}")
+                print(f"✅ 差异报告已在默认浏览器中打开")
+            except Exception as e:
+                print(f"⚠️ 无法打开浏览器: {e}")
+                print("您可以手动打开以下文件查看报告:")
+                print(f"   {report_path}")
 
             return 0;
             

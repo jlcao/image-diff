@@ -9,12 +9,29 @@ class CacheManager:
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.base_cache_dir = base_cache_dir or os.path.join(os.getcwd(), ".compare_cache")
         
+        # 删除base_cache_dir下的所有旧任务目录，保留最新的几个
+        if os.path.exists(self.base_cache_dir):
+            # 列出所有任务目录
+            task_dirs = []
+            for item in os.listdir(self.base_cache_dir):
+                item_path = os.path.join(self.base_cache_dir, item)
+                if os.path.isdir(item_path) and item.startswith('task_'):
+                    task_dirs.append((os.path.getmtime(item_path), item_path))
+            
+            # 按修改时间排序，保留最新的1个任务目录
+            task_dirs.sort(reverse=True)
+            for i, (_, dir_path) in enumerate(task_dirs[1:]):
+                try:
+                    Utils.remove_dir(dir_path)
+                except Exception as e:
+                    # 如果删除失败，继续处理下一个目录
+                    print(f"清理旧缓存目录失败: {dir_path}, 错误: {e}")
+        
         # Create task-specific cache directory
         self.task_cache_dir = os.path.join(
             self.base_cache_dir, 
             f"task_{self.timestamp}_{self.task_id}"
         )
-        Utils.remove_dir(self.base_cache_dir)
         
         # Subdirectories
         self.images_dir = os.path.join(self.task_cache_dir, "images")
